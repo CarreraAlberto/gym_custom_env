@@ -108,4 +108,77 @@ python train_grid_world_obstacles.py run
 
 ## Uso do ambiente GridWorld para problemas de Coverage Path Planning
 
-**Sugestão**: considerando a última versão do ambiente GridWorld, com renderização e obstáculos, altere a função de *reward* e o que mais for necessário para que o agente aprenda a fazer *Coverage Path Planning* (CPP) em um ambiente 2D com obstáculos.
+O **Coverage Path Planning (CPP)** é um problema clássico de planejamento onde o objetivo é encontrar um caminho que cubra todas as células acessíveis de um grid. Diferente do objetivo original (chegar a um ponto fixo), no CPP o agente deve visitar *todas* as células não-obstáculo pelo menos uma vez.
+
+O ambiente CPP está implementado em `gymnasium_env/grid_world_cpp.py` e o script de teste com agente aleatório em `run_grid_world_cpp.py`.
+
+Para executar o agente aleatório em um grid 5×5 (sem renderização, 10 episódios):
+
+```bash
+python run_grid_world_cpp.py
+```
+
+Para visualizar a execução com renderização gráfica (3 episódios):
+
+```bash
+python run_grid_world_cpp.py render
+```
+
+Para obter estatísticas sobre 100 episódios:
+
+```bash
+python run_grid_world_cpp.py stats
+```
+
+---
+
+### Função de reward original (tarefa de navegação com alvo fixo)
+
+O ambiente `grid_world_obstacles.py` implementa uma tarefa de navegação onde o agente deve alcançar um alvo fixo. A função de reward tem três casos:
+
+| Situação | Reward |
+|---|---|
+| Agente alcança o alvo | `+10.0` |
+| Passo normal | `dist_anterior − dist_atual − 0.1` (shaping por distância + custo de passo) |
+| Episódio truncado (max steps) sem alcançar o alvo | `−10.0` |
+
+Essa função recompensa o agente por se aproximar do alvo a cada passo (*potential-based shaping*) e aplica uma punição forte se o orçamento de passos se esgotar sem sucesso.
+
+---
+
+### Nova função de reward (CPP)
+
+Para o CPP, o conceito de alvo fixo não existe — o sucesso é medido pela cobertura total do ambiente. A nova função de reward foi projetada com três princípios:
+
+**Incentivar exploração**: recompensar visitas a células novas.\
+**Desincentivar repetição**: punir o retorno a células já visitadas.\
+**Premiar a conclusão**: oferecer um bônus terminal quando cobertura total é atingida.
+
+
+| Situação | Reward |
+|---|---|
+| Visitar uma célula **nova** (não visitada) | `+1.0` |
+| Revisitar uma célula **já coberta** | `−0.5` |
+| Custo fixo por passo (eficiência) | `−0.1` (aplicado sempre) |
+| Bônus de conclusão (cobertura 100% atingida) | `+10.0` (acumulado com o reward do passo) |
+
+Exemplo de rewards em um passo típico:
+- Visitar célula nova: `1.0 − 0.1 = +0.9`
+- Revisitar célula: `−0.5 − 0.1 = −0.6`
+- Completar cobertura no passo: `1.0 − 0.1 + 10.0 = +10.9`
+
+A combinação de reward positivo para células novas e negativo para revisitas cria um gradiente que guia o agente em direção a regiões inexploradas. O bônus terminal incentiva o agente a *terminar* a cobertura em vez de apenas coletar rewards parciais indefinidamente.
+
+---
+
+### Mudanças no ambiente em relação ao `grid_world_obstacles.py`
+
+| Aspecto | Goal-reaching (original) | CPP (novo) |
+|---|---|---|
+| Objetivo | Alcançar alvo fixo | Cobrir todas as células acessíveis |
+| Terminação | Agente chega ao alvo | Cobertura 100% atingida |
+| Estado | `[agent_x, agent_y, target_x, target_y, neighbors]` | `[agent_x, agent_y, visited_map (5×5), neighbors]` |
+| Reward | Shaping por distância ao alvo | Por célula nova / revisita + bônus de conclusão |
+| Alvo fixo | Sim | Não |
+
+O **mapa de células visitadas** (`visited_map`) é parte fundamental do estado: sem ele, o agente não teria informação suficiente para aprender a evitar células já cobertas.
